@@ -55,7 +55,11 @@
   "bugs": {
     "url": "https://github.com/compute-io/pcorr/issues"
   },
-  "dependencies": {},
+  "dependencies": {
+    "convert-csv-to-array": "^1.0.1",
+    "fs": "0.0.1-security",
+    "mathjs": "^5.3.1"
+  },
   "devDependencies": {
     "chai": "1.x.x",
     "mocha": "1.x.x",
