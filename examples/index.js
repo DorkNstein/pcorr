@@ -4,11 +4,10 @@ const pcorr = require("./../lib");
 const readData = require("./data")();
 readData.then(resp => {
   const data = resp.train_data;
-  const N = 100000
   const x_matrix = [];
   const variables = {};
   const headers = data[0];
-  const output_var = "price";
+  const output_var = "charges";
   const inputs = [];
   const output = [];
   for (const key in headers) {
@@ -17,23 +16,16 @@ readData.then(resp => {
       inputs.push(key);
     };
   }
-  //   console.log('inputs :', inputs);
 
-  data
-    .slice(0, N)
-    .map((x, index) => {
-      // let x_matrix_row = [];
+  data.map(x => {
       for (const key in x) {
         if (key === output_var) {
           output.push(parseFloat(+x[key]));
         } else if (!!variables[key]) {
           variables[key].push(+x[key]);
-          // x_matrix_row.push(+x[key]);
         };
       }
-      // x_matrix.push(x_matrix_row);
     });
-  // console.log("x_matrix.length ", x_matrix.length);
   console.log("output.length ", output.length, inputs);
 
   /* Correlation Method */
@@ -43,7 +35,6 @@ readData.then(resp => {
   });
 
   const mat = pcorr(corrInput);
-  //   console.log("Correlation: \n", mat[0]);
 
   let corrObj = {};
   corrObj[output_var] = mat[0][0];
@@ -51,21 +42,21 @@ readData.then(resp => {
   const dep_inputs = [];
   inputs.map((input, index) => {
     corrObj[input] = mat[0][index + 1];
-    if (Math.abs(corrObj[input]) > 0.3)
+    if (Math.abs(corrObj[input]) > 0.1)
       dep_inputs.push(input);
   })
 
   data.map(h => {
     let x_matrix_row = [];
     for (const key in h) {
-			if (dep_inputs.indexOf(key) >= 0) {
-				x_matrix_row.push(+h[key]);
-			}
-		}
-		x_matrix.push(x_matrix_row);
+      if (dep_inputs.indexOf(key) >= 0) {
+        x_matrix_row.push(+h[key]);
+      }
+    }
+    x_matrix.push(x_matrix_row);
   })
 
-  console.log({ output_var }, "corrObj ", corrObj);
+  console.log({ output_var }, { corrObj });
 
   /* Linear Regression Method */
   const x_transpose = math.transpose(x_matrix);
@@ -73,7 +64,6 @@ readData.then(resp => {
   const coeff = math.multiply(inv, x_transpose, output);
 
   let coeffObj = {};
-  //   coeffObj[output_var] = mat[0][0];
   dep_inputs.map((input, index) => {
     coeffObj[input] = coeff[index];
   });
@@ -81,9 +71,9 @@ readData.then(resp => {
   // console.log("\ncoeff:", coeff);
   console.log("\ncoeffObj:", coeffObj);
 
-  const train_data = resp.train_data;
-  let sq_err = sqErrorMethod(train_data, coeffObj, output_var, 0);
-  const avg_err = Math.sqrt(sq_err) / train_data.length;
+  const test_data = resp.train_data;
+  let sq_err = sqErrorMethod(test_data, coeffObj, output_var, 0);
+  const avg_err = Math.sqrt(sq_err / test_data.length);
   console.log("Final sq_err ", sq_err, avg_err);
 
   // const test_data = resp.test_data;
@@ -104,9 +94,8 @@ const sqErrorMethod = (data, coeffObj, output_var, err) => {
     }
     sq_err += Math.pow(output_i - calc_output, 2);
     if (i < 10) {
-      console.log("Outputs:", output_i, calc_output, sq_err);
+      console.log("Outputs:", output_i, calc_output, output_i - calc_output);
     }
   }
-
   return sq_err;
 }

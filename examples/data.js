@@ -1,32 +1,21 @@
-const fs = require('fs');
-const { convertCSVToArray } = require('convert-csv-to-array');
+const csv = require('csvtojson');
 
 const readData = () => {
-  return new Promise((resolve, reject) => {
-    fs.readFile(__dirname + "/kc_house_data_1.csv", opts = 'utf8', (err, fileData) => {
-      if (err) {
-        console.log("Error:\n", err);
-        reject(err);
-	  }
-	//   console.log('fileData :', fileData);
-      resolve(fileData);
-    });
-  })
+  return csv()
+      .fromFile(__dirname + "/insurance.csv")
+      .then((jsonObj) => {
+		return jsonObj;
+      })
 }
 
 const getData = async () => {
   const fileData = await readData();
-  const convertedData = convertCSVToArray(fileData, {
-    separator: ',', // use the separator you use in your csv (e.g. '\t', ',', ';' ...)
-  });
-
-  const eighty_percent = Math.floor(convertedData.length * 0.8);
-//   console.log("test", convertedData[6]);
-  const train_data = convertedData.slice(1, eighty_percent);
-  const test_data = convertedData.slice(eighty_percent + 1, convertedData.length);
+  const eighty_percent = Math.floor(fileData.length * 0.8);
+  const train_data = fileData.slice(0, eighty_percent);
+  const test_data = fileData.slice(eighty_percent + 1, fileData.length);
   return {
-	  train_data,
-	  test_data
+    train_data,
+    test_data
   };
 }
 
