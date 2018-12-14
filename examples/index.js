@@ -1,101 +1,203 @@
 "use strict";
 const math = require("mathjs");
+var plotly = require('plotly')("linearDash", "mWXFe8516qtTkiiPcmIK");
+
 const pcorr = require("./../lib");
-const readData = require("./data")();
+const readData = require("./data")(__dirname + "/insurance.csv");
+const output_var = "charges";
+// const readData = require("./data")(__dirname + "/avocado.csv");
+// const output_var = "AveragePrice";
+const moment = require("moment");
+const intercept_var = "intercept";
+
 readData.then(resp => {
   const data = resp.train_data;
   const x_matrix = [];
   const variables = {};
   const headers = data[0];
-  const output_var = "charges";
   const inputs = [];
+  const text_inputs = [];
+  const date_inputs = [];
   const output = [];
+
+  /** Extract inputs & text inputs */
   for (const key in headers) {
-    if (!isNaN(headers[key]) && key !== output_var) {
+    if (key !== output_var) {
       variables[key] = [];
+      if (isNaN(headers[key])) {
+        const date = moment(headers[key]);
+        console.log(key, ":date check:", date.isValid());
+        if (!date.isValid()) text_inputs.push(key);
+        else {
+          date_inputs.push(key);
+          delete variables[key];
+          continue;
+        }
+      }
       inputs.push(key);
     };
   }
 
+  /** Clean data for numerical values & separate input arrays */
   data.map(x => {
-      for (const key in x) {
-        if (key === output_var) {
-          output.push(parseFloat(+x[key]));
-        } else if (!!variables[key]) {
-          variables[key].push(+x[key]);
-        };
-      }
-    });
-  console.log("output.length ", output.length, inputs);
+    for (const key in x) {
+      if (key === output_var) {
+        output.push(parseFloat(+x[key]));
+      } else if (!!variables[key]) {
+        let value = !isNaN(headers[key]) ? +x[key] : x[key];
+        variables[key].push(value);
+      };
+    }
+  });
+  console.log("output.length ", output.length, inputs, { text_inputs });
 
-  /* Correlation Method */
+  /** Set unique numerical values to replace text values */
+  const unique = {};
+  text_inputs.map(input => {
+    unique[input] = [...new Set(variables[input])];
+    variables[input] = variables[input].map(ele => {
+      return unique[input].indexOf(ele) + 1;
+    })
+  });
+  console.log("unique ", unique);
+
+  /** Correlation Method */
   const corrInput = [output];
   inputs.map(input => {
+    // console.log("input ", input, variables[input].length);
     corrInput.push(variables[input]);
   });
-
   const mat = pcorr(corrInput);
 
+  /** Filter out just influencing inputs */
   let corrObj = {};
-  corrObj[output_var] = mat[0][0];
-
-  const dep_inputs = [];
+  const predictors = [];
   inputs.map((input, index) => {
     corrObj[input] = mat[0][index + 1];
-    if (Math.abs(corrObj[input]) > 0.1)
-      dep_inputs.push(input);
+    // if (Math.abs(corrObj[input]) > 0.05)
+    predictors.push(input);
   })
 
-  data.map(h => {
-    let x_matrix_row = [];
-    for (const key in h) {
-      if (dep_inputs.indexOf(key) >= 0) {
-        x_matrix_row.push(+h[key]);
-      }
-    }
+  /** Form X matrix from input values */
+  for (let i = 0; i < output.length; i++) {
+    let x_matrix_row = [1];
+    predictors.map(input => {
+      x_matrix_row.push(variables[input][i]);
+    })
     x_matrix.push(x_matrix_row);
-  })
+  }
+  console.log({ corrObj }, x_matrix.length, x_matrix[0].length);
 
-  console.log({ output_var }, { corrObj });
-
-  /* Linear Regression Method */
+  /** Linear Regression Method */
   const x_transpose = math.transpose(x_matrix);
   const inv = math.inv(math.multiply(x_transpose, x_matrix));
   const coeff = math.multiply(inv, x_transpose, output);
+  const hat_matrix = math.multiply(x_matrix, inv, x_transpose);
 
-  let coeffObj = {};
-  dep_inputs.map((input, index) => {
-    coeffObj[input] = coeff[index];
+  let coeffObj = {
+    [intercept_var]: coeff[0]
+  };
+  predictors.map((input, index) => {
+    coeffObj[input] = coeff[index + 1];
   });
-
-  // console.log("\ncoeff:", coeff);
+  console.log("\ncoeff:", coeff);
+  // console.log("\nhat_matrix:", hat_matrix);
   console.log("\ncoeffObj:", coeffObj);
 
-  const test_data = resp.train_data;
-  let sq_err = sqErrorMethod(test_data, coeffObj, output_var, 0);
+  /** Clean test data & convert text strings to numerical values */
+  const test_data = resp.train_data.map(d => {
+    text_inputs.map(input => {
+      d[input] = unique[input].indexOf(d[input]) + 1
+    })
+    return d;
+  })
+
+  let { sq_err, err_matrix, y_hat } = sqErrorMethod(test_data, coeffObj, output_var, 0);
   const avg_err = Math.sqrt(sq_err / test_data.length);
-  console.log("Final sq_err ", sq_err, avg_err);
+  console.log("Final sq_err ", sq_err, avg_err, err_matrix.length);
 
-  // const test_data = resp.test_data;
-  // let sq_err_2 = sqErrorMethod(test_data, coeffObj, output_var, -avg_err);
-  // const avg_err_2 = Math.sqrt(sq_err_2) / test_data.length;
+  var layout = {
+    title: 'Residuals vs fitted Values',
+    xaxis: {
+      title: 'Fitter Values'
+    },
+    yaxis: {
+      title: 'Residuals'
+    }
+  };
+  var trace1 = {
+    x: y_hat,
+    y: err_matrix,
+    name: 'Residuals',
+    mode: "markers",
+    type: "scatter"
+	};
 
-  // console.log("Final sq_err 2", sq_err_2, avg_err_2);
+	var trace3 = {
+    x: y_hat,
+    // y: err_matrix,
+    name: 'Residuals',
+    // mode: "markers",
+    type: "histogram"
+	};
+
+	const zero_array = new Array(5);
+  var trace2 = {
+    x: y_hat,
+    y: zero_array.fill(0),
+    name: 'Linear Regression',
+    mode: "lines",
+    type: "scatter"
+  };
+  // var plotData = [trace1, trace2];
+  // var graphOptions = { layout: layout, filename: "Residuals vs fitted", fileopt: "overwrite" }
+  // plotly.plot(plotData, graphOptions, function(err, msg) {
+  //   if (err) {
+  //     console.log(err);
+  //     process.exit(3);
+  //   } else {
+  //     console.log('Success! The plot (' + msg.filename + ') can be found at ' + msg.url);
+  //     process.exit();
+  //   }
+	// });
+
+	var plotData = [trace3];
+  var graphOptions = { layout: layout, filename: "Residuals Histogram", fileopt: "overwrite" }
+  plotly.plot(plotData, graphOptions, function(err, msg) {
+    if (err) {
+      console.log(err);
+      process.exit(3);
+    } else {
+      console.log('Success! The plot (' + msg.filename + ') can be found at ' + msg.url);
+      process.exit();
+    }
+  });
 });
 
 const sqErrorMethod = (data, coeffObj, output_var, err) => {
-  let sq_err = 0;
-  console.log("err ", err);
+	let sq_err = 0;
+	const y_hat = [];
+  const err_matrix = [];
+  // console.log("err ", err);
   for (let i = 0; i < data.length; i++) {
     let output_i = data[i][output_var];
     let calc_output = err;
     for (const key in coeffObj) {
-      calc_output += data[i][key] * coeffObj[key];
+      if (key === intercept_var) {
+        calc_output += coeffObj[key];
+      } else
+        calc_output += data[i][key] * coeffObj[key];
     }
+    y_hat.push(calc_output);
+    err_matrix.push(output_i - calc_output);
     sq_err += Math.pow(output_i - calc_output, 2);
     if (i < 10) {
       console.log("Outputs:", output_i, calc_output, output_i - calc_output);
     }
   }
-  return sq_err;
+  return {
+		y_hat,
+    err_matrix,
+    sq_err
+  };
 }
