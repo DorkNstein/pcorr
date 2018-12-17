@@ -3,10 +3,18 @@ const math = require("mathjs");
 var plotly = require('plotly')("linearDash", "mWXFe8516qtTkiiPcmIK");
 
 const pcorr = require("./../lib");
-const readData = require("./data")(__dirname + "/insurance.csv");
-const output_var = "charges";
-// const readData = require("./data")(__dirname + "/avocado.csv");
-// const output_var = "AveragePrice";
+
+const files = [{
+	name: "/insurance.csv",
+	output: "charges"
+}, {
+	name: "/avocado.csv",
+	output: "AveragePrice"
+}];
+
+const file = files[0];
+const readData = require("./data")(__dirname + file.name);
+const output_var = file.output;
 const moment = require("moment");
 const intercept_var = "intercept";
 
@@ -100,7 +108,7 @@ readData.then(resp => {
   predictors.map((input, index) => {
     coeffObj[input] = coeff[index + 1];
   });
-  console.log("\ncoeff:", coeff);
+  console.log("\ncoeff:", coeff.length);
   // console.log("\nhat_matrix:", hat_matrix);
   console.log("\ncoeffObj:", coeffObj);
 
@@ -112,9 +120,50 @@ readData.then(resp => {
     return d;
   })
 
-  let { sq_err, err_matrix, y_hat } = sqErrorMethod(test_data, coeffObj, output_var, 0);
+  let { err_matrix, y_hat } = sqErrorMethod(test_data, coeffObj, output_var, 0);
+  const sq_err = math.multiply(math.transpose(err_matrix), err_matrix);
   const avg_err = Math.sqrt(sq_err / test_data.length);
-  console.log("Final sq_err ", sq_err, avg_err, err_matrix.length);
+  const sigma_hat_sq = sq_err / (output.length - coeff.length);
+  console.log("Final sq_err ", sq_err, avg_err, sigma_hat_sq);
+
+  const estimated_var_covar_matrix = scalar_matrix_multiply({
+    matrix: inv,
+    scalar: sigma_hat_sq
+  });
+
+	console.log("estimated_var_covar_matrix.length ", estimated_var_covar_matrix.length, estimated_var_covar_matrix[0].length);
+
+	const coeff_corr = pcorr(estimated_var_covar_matrix);
+	console.log("coeff_corr.length ", coeff_corr.length, coeff_corr[0].length);
+  // plotData(y_hat, err_matrix);
+});
+
+const sqErrorMethod = (data, coeffObj, output_var, err) => {
+  const y_hat = [];
+  const err_matrix = [];
+  // console.log("err ", err);
+  for (let i = 0; i < data.length; i++) {
+    let output_i = data[i][output_var];
+    let calc_output = err;
+    for (const key in coeffObj) {
+      if (key === intercept_var) {
+        calc_output += coeffObj[key];
+      } else
+        calc_output += data[i][key] * coeffObj[key];
+    }
+    y_hat.push(calc_output);
+    err_matrix.push(output_i - calc_output);
+    // if (i < 10) {
+      // console.log("Outputs:", output_i, calc_output, output_i - calc_output);
+    // }
+  }
+  return {
+    y_hat,
+    err_matrix
+  };
+}
+
+const plotData = (y_hat, err_matrix) => {
 
   var layout = {
     title: 'Residuals vs fitted Values',
@@ -131,17 +180,17 @@ readData.then(resp => {
     name: 'Residuals',
     mode: "markers",
     type: "scatter"
-	};
+  };
 
-	var trace3 = {
+  var trace3 = {
     x: y_hat,
     // y: err_matrix,
     name: 'Residuals',
     // mode: "markers",
     type: "histogram"
-	};
+  };
 
-	const zero_array = new Array(5);
+  const zero_array = new Array(5);
   var trace2 = {
     x: y_hat,
     y: zero_array.fill(0),
@@ -159,9 +208,9 @@ readData.then(resp => {
   //     console.log('Success! The plot (' + msg.filename + ') can be found at ' + msg.url);
   //     process.exit();
   //   }
-	// });
+  // });
 
-	var plotData = [trace3];
+  var plotData = [trace3];
   var graphOptions = { layout: layout, filename: "Residuals Histogram", fileopt: "overwrite" }
   plotly.plot(plotData, graphOptions, function(err, msg) {
     if (err) {
@@ -172,32 +221,14 @@ readData.then(resp => {
       process.exit();
     }
   });
-});
+}
 
-const sqErrorMethod = (data, coeffObj, output_var, err) => {
-	let sq_err = 0;
-	const y_hat = [];
-  const err_matrix = [];
-  // console.log("err ", err);
-  for (let i = 0; i < data.length; i++) {
-    let output_i = data[i][output_var];
-    let calc_output = err;
-    for (const key in coeffObj) {
-      if (key === intercept_var) {
-        calc_output += coeffObj[key];
-      } else
-        calc_output += data[i][key] * coeffObj[key];
+const scalar_matrix_multiply = ({ matrix, scalar }) => {
+  return matrix.map(row => {
+    if (Array.isArray(row)) {
+      return row.map(x => x * scalar);
+    } else {
+      return row * scalar;
     }
-    y_hat.push(calc_output);
-    err_matrix.push(output_i - calc_output);
-    sq_err += Math.pow(output_i - calc_output, 2);
-    if (i < 10) {
-      console.log("Outputs:", output_i, calc_output, output_i - calc_output);
-    }
-  }
-  return {
-		y_hat,
-    err_matrix,
-    sq_err
-  };
+  })
 }
